@@ -648,26 +648,45 @@ function startChat(code){
     renderChat();
   });
 }
-/* 교실에서 자주 나오는 표현을 1차로 걸러 내는 기본 목록 */
+/* 교실에서 자주 나오는 표현을 1차로 걸러 내는 기본 목록
+   (띄어쓰기·기호·숫자를 끼워 넣어도 걸려요. 더 막고 싶은 말은 여기에 추가하세요) */
 const BAD_WORDS = [
-  "시발","씨발","씨팔","시팔","ㅅㅂ","개새끼","개색기","새꺄","병신","ㅂㅅ","좆","좇",
-  "존나","존내","걸레","창녀","미친놈","미친년","지랄","닥쳐","꺼져","뒤져","죽어라",
-  "한남충","한녀충","틀딱","급식충","맘충","fuck","fucking","shit","bitch","asshole",
-  "bastard","nigger","retard"
+  // 욕설·변형
+  "시발","씨발","씨팔","시팔","씨빨","시빨","씨바","시바","씨벌","시벌","쓰발","쓰벌","씹","썅","ㅅㅂ","ㅆㅂ","ㅅㅍ","ㅆㅍ",
+  "개새","개색","개섀","개쉐","개세끼","새끼","섀끼","쌔끼","새꺄","쉐끼","색끼","ㅅㄲ","ㄱㅅㄲ",
+  "병신","븅신","빙신","병싄","ㅂㅅ","ㅄ","등신","ㄷㅅ","좆","좇","존나","존내","졸라","존니","ㅈㄴ","ㅈ같","좆같","개같",
+  "지랄","ㅈㄹ","염병","엠병","젠장","빌어먹","엿먹","꺼져","꺼지라","꺼지셈","닥쳐","닥치","ㄷㅊ","ㅗㅗ",
+  "미친","미쳤냐","미친놈","미친년","ㅁㅊ","또라이","돌아이","정신병자","찐따","멍청이","바보새","쓰레기같","걸레","창녀",
+  // 죽음·위협
+  "죽어","죽어라","죽을래","죽는다","죽여","죽인다","죽일","뒤져","뒤질","뒤진다","디져","디질","디진다","자살","칼로찔","패버","때려죽",
+  // 부모 욕(패드립)
+  "니애미","니엄마","느금","느그엄마","니미","애미","애비","엠창","니아빠","부모없","고아새",
+  // 비하
+  "한남충","한녀충","틀딱","급식충","맘충","장애인새","흑형","짱깨","쪽바리","놈아","년아",
+  // 영어
+  "fuck","fck","fuk","shit","bitch","btch","asshole","bastard","dick","pussy","nigger","nigga","retard","kys","stfu","wtf"
 ];
+/* 나쁜 말이 들어 있어도 가리지 않는 멀쩡한 낱말 */
+const SAFE_WORDS = ["새끼손가락","새끼발가락","새끼손톱","시바견","시바이누"];
 const CHAT_MAX = 100, CHAT_COOL = 1200, CHAT_DUP = 15000;
 /* 같은 글자를 8번 넘게 반복하면 8개로 줄임 */
 function squash(t){ return t.replace(/(.)\1{7,}/g, (m, c) => c.repeat(8)); }
-/* 띄어쓰기·기호로 피해 가는 것도 잡도록, 기호를 뺀 축약본에서 찾아 원래 자리를 *로 가림 */
+/* 띄어쓰기·기호·숫자로 피해 가는 것도 잡도록, 그것들을 뺀 축약본에서 찾아 원래 자리를 *로 가림 */
 function maskBad(text){
-  const skip = /[\s.,!?~^*\-_'"]/;
+  const skip = /[\s.,!?~^*\-_'"0-9()\[\]{}:;·/\\|@#$%&+=<>`]/;
   let plain = ''; const map = [];
   for (let i = 0; i < text.length; i++){ if (!skip.test(text[i])){ plain += text[i]; map.push(i); } }
   const low = plain.toLowerCase(), chars = text.split(''); let hit = false;
+  const safe = new Array(low.length).fill(false);            // 멀쩡한 낱말 자리는 건드리지 않음
+  for (const sw of SAFE_WORDS){ let f = 0, q; while ((q = low.indexOf(sw, f)) !== -1){ for (let k = 0; k < sw.length; k++) safe[q + k] = true; f = q + sw.length; } }
   for (const w0 of BAD_WORDS){
     const w = w0.toLowerCase(); if (!w) continue;
     let from = 0, pos;
-    while ((pos = low.indexOf(w, from)) !== -1){ hit = true; for (let k = 0; k < w.length; k++) chars[map[pos + k]] = '*'; from = pos + w.length; }
+    while ((pos = low.indexOf(w, from)) !== -1){
+      let ok = false; for (let k = 0; k < w.length; k++) if (!safe[pos + k]) ok = true;
+      if (ok){ hit = true; for (let k = 0; k < w.length; k++) chars[map[pos + k]] = '*'; }
+      from = pos + 1;
+    }
   }
   return { text:chars.join(''), hit };
 }
@@ -677,14 +696,35 @@ function onlyJamo(t){
   if (!x || /^[ㅋㅎ]+$/.test(x)) return false;
   return /^[ㄱ-ㅎ]+$/.test(x);
 }
-/* 가짜 예술가 전용: 라운드 중에는 제목이 들어간 메시지를 막아요 (띄어쓰기·기호로 피해 가도 잡음) */
-const plainText = t => String(t || '').toLowerCase().replace(/[\s.,!?~^*\-_'"()\[\]{}:;·/\\|]/g, '');
+/* 가짜 예술가 전용: 라운드 중에는 답(제목)을 채팅에 쓸 수 없어요
+   - 띄어쓰기·기호·숫자를 끼워 넣어도 잡음 (기 린, 기1린, 기.린)
+   - 초성으로 쓰는 것도 잡음 (ㄱㄹ)
+   - 세 글자 이상 제목은 한 글자만 뺀 부분도 잡음 (아이스크림 → 아이스크, 이스크림) */
+const plainText = t => String(t || '').toLowerCase().replace(/[\s.,!?~^*\-_'"()\[\]{}:;·/\\|0-9@#$%&+=<>`]/g, '');
+const CHO = 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ';
+const toCho = t => [...t].map(c => { const k = c.charCodeAt(0) - 0xAC00; return k >= 0 && k < 11172 ? CHO[Math.floor(k / 588)] : c; }).join('');
+const ROUND_PHASES = ['draw', 'vote', 'guess', 'judge'];
+function titleParts(){
+  if (!S || !S.title || !ROUND_PHASES.includes(S.phase)) return [];
+  const t = plainText(S.title); if (!t) return [];
+  const parts = [t];
+  if (t.length >= 3) for (let i = 0; i + t.length - 1 <= t.length; i++) parts.push(t.slice(i, i + t.length - 1));
+  if (t.length >= 2 && /[가-힣]/.test(t)){ const c = toCho(t); if (c !== t) parts.push(c); }
+  return parts;
+}
 function leaksTitle(text){
-  if (!S || !S.title || !['draw', 'vote', 'guess', 'judge'].includes(S.phase)) return false;
-  const t = plainText(S.title);
-  if (!t) return false;
-  if (t.length === 1) return String(text).toLowerCase().split(/[\s.,!?~^*\-_'"()\[\]{}:;·/\\|]+/).includes(t);   // 한 글자 제목은 단어로 쓸 때만
-  return plainText(text).includes(t);
+  const parts = titleParts(); if (!parts.length) return false;
+  const t = parts[0];
+  if (t.length === 1){   // 한 글자 제목(예: 달·배·산)은 그 글자를 따로 쓸 때만
+    return String(text).toLowerCase().split(/[\s.,!?~^*\-_'"()\[\]{}:;·/\\|0-9]+/).includes(t) || plainText(text) === t;
+  }
+  const x = plainText(text);
+  return parts.some(p => x.includes(p));
+}
+/* 받는 쪽에서도 한 번 더 가림 (예전 버전으로 보낸 메시지 대비) */
+function maskTitle(text){
+  const parts = titleParts(); if (!parts.length || parts[0].length < 2) return text;
+  return leaksTitle(text) ? '(답이 들어간 메시지라 가렸어요)' : text;
 }
 function chatTip(m){
   document.querySelectorAll('.chat-tip').forEach(t => { t.textContent = m; t.classList.add('on');
@@ -694,7 +734,7 @@ function sendChat(text){
   text = String(text || '').replace(/\s+/g, ' ').trim();
   if (!text || !roomRef) return false;
   if (onlyJamo(text)){ chatTip('초성만으로는 보낼 수 없어요'); return false; }
-  if (leaksTitle(text)){ chatTip('제목은 채팅으로 말할 수 없어요'); return false; }
+  if (leaksTitle(text)){ chatTip('답(제목)은 채팅에 쓸 수 없어요'); return false; }
   const now = Date.now();
   if (now - CHAT_SENT_AT < CHAT_COOL){ chatTip('너무 빨라요. 잠시 후에 보내세요'); return false; }
   text = squash(text).slice(0, CHAT_MAX);
@@ -708,7 +748,7 @@ function sendChat(text){
 }
 function chatHTML(){
   if (!CHAT.length) return `<div class="chat-empty">아직 대화가 없어요</div>`;
-  return CHAT.map(m => `<div class="cmsg ${m.uid === me ? 'mine' : ''}"><span class="cn"><i style="background:${PENS[m.pen] ? PENS[m.pen][1] : '#999'}"></i>${esc(m.name || '')}</span><span class="ct">${esc(maskBad(String(m.text || '')).text)}</span></div>`).join('');
+  return CHAT.map(m => `<div class="cmsg ${m.uid === me ? 'mine' : ''}"><span class="cn"><i style="background:${PENS[m.pen] ? PENS[m.pen][1] : '#999'}"></i>${esc(m.name || '')}</span><span class="ct">${esc(maskTitle(maskBad(String(m.text || '')).text))}</span></div>`).join('');
 }
 function renderChat(){
   const h = chatHTML();
@@ -729,7 +769,7 @@ function openChat(){
   $('#chatSheet').innerHTML = `<div class="modal" data-a="closeChat"><div class="box chat-sheet">
     <div class="row" style="margin-bottom:8px"><h2 style="flex:1;margin:0;font-size:26px">💬 채팅</h2><button class="btn sm" data-a="closeChat">닫기</button></div>
     <div class="chatbox"></div>
-    <div class="muted" style="font-size:12px;margin:2px 0 6px">라운드 중에는 제목이 들어간 메시지를 보낼 수 없어요.</div>
+    <div class="muted" style="font-size:12px;margin:2px 0 6px">라운드 중에는 답(제목)이 들어간 메시지를 보낼 수 없어요. 초성이나 띄어쓰기로 바꿔 써도 막혀요.</div>
     <div class="quick">${QUICK.map(q => `<button class="qchip" data-a="quickChat" data-q="${esc(q)}">${esc(q)}</button>`).join('')}</div>
     ${chatFormHTML('chatInput')}</div></div>`;
   renderChat(); paintChatBtn();
@@ -740,7 +780,7 @@ function showBubble(m){
   if (CHAT_OPEN || screen !== 'game' || !S || S.phase === 'lobby') return;
   const chip = document.querySelector(`.sc[data-pid="${m.uid}"]`);
   const el = document.createElement('div'); el.className = 'bubble';
-  el.innerHTML = `<b>${esc(m.name || '')}</b> ${esc(maskBad(String(m.text || '')).text)}`;
+  el.innerHTML = `<b>${esc(m.name || '')}</b> ${esc(maskTitle(maskBad(String(m.text || '')).text))}`;
   if (chip){ const r = chip.getBoundingClientRect(); el.style.left = Math.min(window.innerWidth - 90, Math.max(90, r.left + r.width / 2)) + 'px'; el.style.top = Math.max(40, r.top - 6) + 'px'; }
   else { el.style.left = '50%'; el.style.top = '60px'; }
   $('#bubbleLayer').appendChild(el);
